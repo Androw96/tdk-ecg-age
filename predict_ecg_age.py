@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from dashboard.model_service import _metadata, _torch, load_model, read_record_signal
+from dashboard.model_service import _metadata, _torch, load_model, model_input, read_record_signal
 
 
 def select_subset(frame: pd.DataFrame, limit: int) -> pd.DataFrame:
@@ -59,7 +59,8 @@ def evaluate_checkpoint(data_dir: str | Path, checkpoint: str | Path, output_dir
         rows = []
         for start in range(0, len(selected), batch_size):
             batch = selected.iloc[start:start + batch_size]
-            signals = [read_record_signal(data_dir, row, info["sampling_rate"]) for _, row in batch.iterrows()]
+            signals = [model_input(read_record_signal(data_dir, row, info["sampling_rate"]), info)
+                       for _, row in batch.iterrows()]
             if len({signal.shape for signal in signals}) != 1:
                 raise ValueError("A köteg EKG-felvételei eltérő hosszúságúak. Használj batch-size=1 értéket.")
             x = torch.from_numpy(np.stack(signals)).to(info["device"])

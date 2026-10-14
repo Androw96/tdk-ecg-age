@@ -9,7 +9,7 @@ import pandas as pd
 import torch
 from captum.attr import IntegratedGradients
 
-from ecg_age_common import ECGAgeResNet, LEADS, PTBXLAgeDataset, load_ptbxl_metadata, pick_device
+from ecg_age_common import LEADS, PTBXLAgeDataset, load_checkpoint, load_ptbxl_metadata, pick_device
 
 
 def main():
@@ -25,17 +25,15 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     device = pick_device()
 
-    ckpt = torch.load(args.checkpoint, map_location=device)
+    model, ckpt = load_checkpoint(args.checkpoint, device)
     sampling_rate = int(ckpt.get("sampling_rate", 100))
-    model = ECGAgeResNet().to(device)
-    model.load_state_dict(ckpt["model_state"])
-    model.eval()
 
     db = load_ptbxl_metadata(args.data_dir, 18, 89)
     if args.ecg_id not in db.index:
         raise KeyError(f"ECG ID {args.ecg_id} not present after age filtering")
     one = db.loc[[args.ecg_id]].copy()
-    ds = PTBXLAgeDataset(one, args.data_dir, sampling_rate=sampling_rate)
+    ds = PTBXLAgeDataset(one, args.data_dir, sampling_rate=sampling_rate,
+                         preprocessing=ckpt["preprocessing"])
     x, age, ecg_id = ds[0]
     x = x.unsqueeze(0).to(device)
 
@@ -62,7 +60,7 @@ def main():
         ax2 = ax.twinx()
         ax2.fill_between(t, 0, np.abs(attr[idx]), alpha=0.25)
         ax.set_xlabel("Idő (s)")
-        ax.set_ylabel("Skálázott EKG")
+        ax.set_ylabel("Modellbemenet (skálázott EKG)")
         ax2.set_ylabel("|Integrated Gradients|")
         ax.set_title(f"{LEADS[idx]} – valós életkor {float(age):.0f}, becsült {predicted_age:.1f} év")
         fig.tight_layout()

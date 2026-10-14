@@ -4,3 +4,11 @@ __pycache__/
 *.pyc
 runs/
 .DS_Store
+
+cache/
+*.pt
+*.npy
+*.log
+tests_output.log
+.ipynb_checkpoints/
+.streamlit/secrets.toml

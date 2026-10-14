@@ -113,7 +113,7 @@ def load_model(checkpoint: str | Path, device_name: str = "cpu") -> tuple[Any, d
     if not path.is_file():
         raise ValueError(f"Nem található a betanított modell checkpointja: {path}")
     torch = _torch()
-    from ecg_age_common import ECGAgeResNet
+    from ecg_age_common import DEFAULT_PREPROCESSING, PREPROCESSING_MODES, build_model
 
     device = _device(device_name)
     try:
@@ -130,8 +130,16 @@ def load_model(checkpoint: str | Path, device_name: str = "cpu") -> tuple[Any, d
             raise ValueError(f"Érvénytelen modellparaméter: {key} nem tenzor.")
         if value.is_floating_point() and not torch.isfinite(value).all():
             raise ValueError(f"Nem véges modellparaméter: {key}.")
+    model_config = ckpt.get("model_config")
+    if model_config is not None and not isinstance(model_config, dict):
+        raise ValueError("A checkpoint model_config mezője érvénytelen.")
+    preprocessing = ckpt.get("preprocessing") or dict(DEFAULT_PREPROCESSING)
+    if not isinstance(preprocessing, dict) or preprocessing.get("mode") not in PREPROCESSING_MODES:
+        raise ValueError("A checkpoint preprocessing mezője érvénytelen.")
+    if float(preprocessing.get("clip_mv", 5.0)) != 5.0:
+        raise ValueError("A felület csak ±5 mV-os klippeléssel tanított modellt támogat.")
     try:
-        model = ECGAgeResNet()
+        model = build_model(model_config)
         model.load_state_dict(ckpt["model_state"], strict=True)
         model = model.to(device).eval()
     except Exception as exc:
@@ -139,7 +147,18 @@ def load_model(checkpoint: str | Path, device_name: str = "cpu") -> tuple[Any, d
     epoch = ckpt.get("epoch")
     if epoch is not None and (isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 1):
         raise ValueError("A checkpoint epoch értéke pozitív egész kell legyen.")
-    return model, {"sampling_rate": int(rate), "best_epoch": epoch, "device": str(device), "checkpoint": str(path)}
+    return model, {"sampling_rate": int(rate), "best_epoch": epoch, "device": str(device), "checkpoint": str(path),
+                   "preprocessing": preprocessing, "train_cohort": ckpt.get("train_cohort", "all")}
+
+
+def model_input(signal: np.ndarray, info: dict) -> np.ndarray:
+    """Convert a read_record_signal() array (±5 mV clipped, /5) to the checkpoint's input space."""
+    preprocessing = info.get("preprocessing") or {"mode": "clip5"}
+    if preprocessing.get("mode", "clip5") == "clip5":
+        return signal
+    from ecg_age_common import preprocess
+
+    return preprocess(np.asarray(signal, dtype=np.float32) * 5.0, preprocessing)
 
 
 def read_record_signal(data_dir: str | Path, row: pd.Series, sampling_rate: int) -> np.ndarray:
@@ -201,7 +220,7 @@ def predict_record(data_dir: str | Path, checkpoint: str | Path, ecg_id: int,
     model, info = load_model(checkpoint, device_name)
     result = inspect_record(data_dir, ecg_id, info["sampling_rate"])
     torch = _torch()
-    x = torch.from_numpy(result["signal"]).unsqueeze(0).to(info["device"])
+    x = torch.from_numpy(model_input(result["signal"], info)).unsqueeze(0).to(info["device"])
     with torch.inference_mode():
         predicted_age = float(model(x).item())
     if not np.isfinite(predicted_age):

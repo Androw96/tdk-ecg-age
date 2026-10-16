@@ -12,3 +12,7 @@ cache/
 tests_output.log
 .ipynb_checkpoints/
 .streamlit/secrets.toml
+
+# Hosted UI bundles (see docs/UI_DOKUMENTACIO.md) are committed on purpose
+!demo_data/best_model.pt
+_site/

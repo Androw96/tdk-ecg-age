@@ -4,6 +4,7 @@ import html
 import io
 import json
 import os
+import sys
 import zlib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,9 +20,27 @@ from dashboard.analytics import (
     demo_predictions, export_report, load_predictions, metrics,
     prepare_predictions, subgroup_metrics,
 )
-from dashboard.jobs import JobManager
 
 PROJECT = Path(__file__).resolve().parent
+# Deployment profile:
+#   local   – full research workstation (default when run on your own machine)
+#   cloud   – hosted server (Streamlit Community Cloud): bundled example ECGs + live model, no jobs
+#   browser – GitHub Pages via stlite/Pyodide: precomputed examples, no PyTorch, no jobs
+PROFILE = os.environ.get("ECG_AGE_PROFILE", "").strip().lower() or (
+    "browser" if sys.platform == "emscripten" else "local")
+if PROFILE not in {"local", "cloud", "browser"}:
+    PROFILE = "local"
+LOCAL = PROFILE == "local"
+DEMO_DIR = Path(os.environ.get("ECG_AGE_DEMO_DIR", PROJECT / "demo_data")).expanduser()
+WEB_DIR = Path(os.environ.get("ECG_AGE_WEB_DIR", PROJECT / "web" / "examples")).expanduser()
+PAGES = (["EKG-vizsgálat", "Kimutatások", "Modelltesztek", "Kísérletek"] if LOCAL
+         else ["EKG-vizsgálat", "Kimutatások"])
+REAL_MODE = "Saját adatok" if LOCAL else "Valós példák"
+FOOTER = {
+    "local": "ECG Age Lab / TDK · Helyi kutatói munkafelület · A bemutatóadatok nem kutatási eredmények.",
+    "cloud": "ECG Age Lab / TDK · Online bemutató (szerver) · PTB-XL példák, CC BY 4.0 · Kutatási célú becslés, nem diagnózis.",
+    "browser": "ECG Age Lab / TDK · Böngészős változat (stlite) · Előre kiszámított eredmények · Kutatási célú becslés, nem diagnózis.",
+}[PROFILE]
 LEADS = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
 LABELS = ["NORM", "MI", "STTC", "CD", "HYP"]
 TEAL, BLUE, AMBER = "#087f83", "#4f70ac", "#d39b38"
@@ -50,7 +69,61 @@ def style():
 
 @st.cache_resource
 def job_manager():
+    from dashboard.jobs import JobManager
+
     return JobManager(PROJECT)
+
+
+def real_examples_available() -> bool:
+    """Whether the hosted profiles have their example bundle (see docs/UI_DOKUMENTACIO.md)."""
+    if PROFILE == "cloud":
+        return ((DEMO_DIR / "best_model.pt").is_file() and (DEMO_DIR / "ptbxl" / "ptbxl_database.csv").is_file()
+                and (DEMO_DIR / "examples.csv").is_file())
+    if PROFILE == "browser":
+        return (WEB_DIR / "examples.npz").is_file() and (WEB_DIR / "examples.json").is_file()
+    return True
+
+
+@st.cache_data
+def web_examples(folder=None):
+    folder = Path(folder or WEB_DIR)
+    meta = json.loads((folder / "examples.json").read_text(encoding="utf-8"))
+    with np.load(folder / "examples.npz") as arrays:
+        return meta, {key: arrays[key] for key in arrays.files}
+
+
+@st.cache_data
+def bundle_ids(folder=None):
+    return pd.read_csv(Path(folder or DEMO_DIR) / "examples.csv").ecg_id.astype(int).tolist()
+
+
+def example_ids():
+    if PROFILE == "browser":
+        return [int(r["ecg_id"]) for r in web_examples(str(WEB_DIR))[0]["records"]]
+    return bundle_ids(str(DEMO_DIR))
+
+
+def web_record(ecg_id, explain):
+    """A precomputed real example (browser profile): signal, prediction and optional IG."""
+    meta, arrays = web_examples(str(WEB_DIR))
+    index = next(i for i, r in enumerate(meta["records"]) if int(r["ecg_id"]) == int(ecg_id))
+    rec = meta["records"][index]
+    result = {"ecg_id": str(rec["ecg_id"]), "age": float(rec["age"]), "predicted_age": float(rec["predicted_age"]),
+              "age_gap_raw": float(rec["predicted_age"]) - float(rec["age"]),
+              "sampling_rate": int(meta["sampling_rate"]), "leads": LEADS, "split": rec.get("split", "test"),
+              "signal": arrays["signals"][index].astype(np.float32) / 5.0,
+              "device": "előre kiszámított becslés", "best_epoch": meta.get("best_epoch", "—"), "precomputed": True}
+    if explain and "attributions" in arrays:
+        attribution = arrays["attributions"][index].astype(np.float32)
+        result.update(attribution=attribution, lead_importance=np.abs(attribution).mean(axis=1),
+                      convergence_delta=float(rec.get("ig_convergence_delta", float("nan"))),
+                      ig_steps=int(meta.get("ig_steps", 32)))
+    return result
+
+
+def bundled_predictions_path():
+    path = (DEMO_DIR if PROFILE == "cloud" else WEB_DIR) / "predictions.csv"
+    return path if path.is_file() else None
 
 
 def chart(fig, height=360):
@@ -82,12 +155,14 @@ def sidebar():
         st.markdown('<div class="brand">ECG<span> Age Lab</span></div>', unsafe_allow_html=True)
         st.caption("TDK · Kutatói munkafelület")
         st.divider()
-        page = st.radio("Munkaterület", ["EKG-vizsgálat", "Kimutatások", "Modelltesztek", "Kísérletek"],
-                        label_visibility="collapsed", key="page")
+        page = st.radio("Munkaterület", PAGES, label_visibility="collapsed", key="page")
         st.divider()
-        mode = st.radio("Adatforrás", ["Bemutató", "Saját adatok"], horizontal=True, key="data_mode")
+        modes = ["Bemutató", REAL_MODE] if real_examples_available() else ["Bemutató"]
+        mode = st.radio("Adatforrás", modes, horizontal=True, key="data_mode")
         if mode == "Bemutató":
             st.caption("Szintetikus példák a felület kipróbálásához.")
+        if not LOCAL:
+            return page, mode == "Bemutató", *hosted_sidebar(mode)
         st.text_input("PTB-XL adatbázis mappája", key="data_dir",
                       placeholder="/…/ptb-xl-1.0.3", help="A ptbxl_database.csv és records100/records500 mappák helye.")
         checkpoints = sorted((PROJECT / "runs").glob("**/best_model.pt")) if (PROJECT / "runs").exists() else []
@@ -103,6 +178,25 @@ def sidebar():
         st.caption("12 elvezetés · 1D ResNet · 18–89 év")
         st.caption("Kutatási célú életkorbecslés. Az AgeGap önmagában nem diagnózis.")
     return page, mode == "Bemutató", st.session_state.data_dir.strip(), st.session_state.checkpoint.strip(), device
+
+
+def hosted_sidebar(mode):
+    """Sidebar tail for the cloud / browser profiles: no local paths, CPU only."""
+    if PROFILE == "cloud":
+        data_dir, checkpoint = str(DEMO_DIR / "ptbxl"), str(DEMO_DIR / "best_model.pt")
+        if mode != "Bemutató":
+            st.caption("Válogatott PTB-XL teszt-EKG-k; a becslést a betanított modell a szerveren számolja.")
+    else:
+        data_dir, checkpoint = "", ""
+        if mode != "Bemutató":
+            st.caption("Válogatott PTB-XL teszt-EKG-k előre kiszámított becsléssel; a böngészőben nem fut modell.")
+    if not real_examples_available():
+        st.caption("A valós példacsomag nincs telepítve, ezért csak a bemutató mód érhető el.")
+    st.divider()
+    st.caption("12 elvezetés · 1D ResNet · 18–89 év")
+    st.caption("Kutatási célú életkorbecslés. Az AgeGap önmagában nem diagnózis.")
+    st.caption("A teljes munkafelület (tanítás, saját adatok) a helyi telepítésben érhető el.")
+    return data_dir, checkpoint, "cpu"
 
 
 def header(title, subtitle, demo):
@@ -159,25 +253,33 @@ def ecg_page(demo, data_dir, checkpoint, device):
     header("Egy jel. Tizenkét nézőpont.", "Vizsgáld meg az EKG-t, futtass életkorbecslést, és nézd meg, mire figyel a modell.", demo)
     with st.container(border=True):
         st.subheader("Vizsgálat beállítása")
-        view_only = st.checkbox("Csak jel megjelenítése (modell nélkül)", value=False, disabled=demo)
+        view_only = st.checkbox("Csak jel megjelenítése (modell nélkül)", value=False,
+                                disabled=demo or PROFILE == "browser")
         c1, c2, c3 = st.columns([1, 1, 1.4])
         with c1:
             if demo:
                 ids = demo_predictions().ecg_id.tolist()
                 ecg_id = st.selectbox("EKG-azonosító", ids[:60], format_func=lambda x: f"EKG #{x}")
+            elif not LOCAL:
+                ecg_id = st.selectbox("EKG-azonosító (PTB-XL teszt)", example_ids(), format_func=lambda x: f"EKG #{x}")
             else:
                 ecg_id = st.number_input("EKG-azonosító (ecg_id)", min_value=1, value=1, step=1)
         with c2:
             explain = st.checkbox("Integrated Gradients", value=False, disabled=demo or view_only,
                                   help="Elvezetésenként megmutatja a bemenet becsléshez való hozzájárulását. Több időt igényel.")
-            steps = st.selectbox("IG lépések", [16, 32, 64, 128], index=1, disabled=not explain or view_only)
+            steps = st.selectbox("IG lépések", [16, 32, 64, 128], index=1,
+                                 disabled=not explain or view_only or PROFILE == "browser")
             sampling_rate = st.selectbox("Jel mintavétele (Hz)", [100, 500]) if view_only else 100
         with c3:
             st.caption("A modell a tanításkor használt mintavétellel és előfeldolgozással kapja meg a jelet.")
-            run = st.button("Példa megjelenítése" if demo else "EKG vizsgálata", type="primary", width="stretch")
+            run = st.button("Példa megjelenítése" if demo or PROFILE == "browser" else "EKG vizsgálata",
+                            type="primary", width="stretch")
     signature = (demo, str(ecg_id), file_version(data_dir), file_version(checkpoint), device, explain, steps, view_only, sampling_rate)
     if demo:
         result = demo_record(ecg_id)
+    elif PROFILE == "browser":
+        result = web_record(ecg_id, explain)
+        steps = result.get("ig_steps", steps)
     else:
         if run:
             st.session_state.pop("record_result", None)
@@ -203,7 +305,8 @@ def ecg_page(demo, data_dir, checkpoint, device):
     if result is None:
         st.info("Add meg a PTB-XL adatbázist és az EKG-azonosítót, majd indítsd el a vizsgálatot." if view_only
                 else "Válassz PTB-XL adatbázist és egy betanított best_model.pt fájlt, majd indítsd el a vizsgálatot.")
-        st.caption("Még nincs modelled? A Kísérletek oldalon indíthatsz tanítást. A Bemutató mód adatbázis nélkül is kipróbálható.")
+        st.caption("Még nincs modelled? A Kísérletek oldalon indíthatsz tanítást. A Bemutató mód adatbázis nélkül is kipróbálható."
+                   if LOCAL else "Válassz egy EKG-t, majd kattints az EKG vizsgálata gombra.")
         return
     if not demo:
         st.caption(f"EKG #{result['ecg_id']} · {result.get('split', 'ismeretlen halmaz')} · "
@@ -215,6 +318,8 @@ def ecg_page(demo, data_dir, checkpoint, device):
         col.metric(label, val)
     if "predicted_age" not in result:
         st.info("Csak az EKG-jel jelenik meg; modellbecslés nem történt.")
+    if result.get("precomputed"):
+        st.caption("A becslés és az Integrated Gradients előre, a betanított modellel készült; a böngészőben nem fut modell.")
     st.write("")
     with st.container(border=True):
         a, b = st.columns([2, 1])
@@ -258,15 +363,12 @@ def ecg_page(demo, data_dir, checkpoint, device):
 def result_source(demo):
     if demo:
         return demo_predictions(), "Szintetikus bemutató", True
+    if not LOCAL:
+        return hosted_result_source()
     candidates = sorted((PROJECT / "runs").glob("**/predictions.csv")) if (PROJECT / "runs").exists() else []
     source = st.radio("Eredmények betöltése", ["Helyi eredményfájl", "CSV feltöltése"], horizontal=True)
     if source == "CSV feltöltése":
-        uploaded = st.file_uploader("Predikciók CSV-fájlja", type=["csv"])
-        if uploaded is None:
-            st.info("Elvárt oszlopok: age, predicted_age. Ajánlott: ecg_id, patient_id, split (validation/test), sex és diagnosztikai címkék.")
-            return None, None, False
-        frame = load_predictions(io.BytesIO(uploaded.getvalue()))
-        return frame, uploaded.name, bool(frame.attrs.get("synthetic", False))
+        return uploaded_source()
     default = st.session_state.pop("next_predictions_path", None)
     if default is not None:
         st.session_state.predictions_path = default
@@ -290,6 +392,34 @@ def result_source(demo):
         except (ValueError, OSError):
             st.warning("A futás metrics.json fájlja nem olvasható; a CSV eredetadatai hiányosak.")
     return frame, path, bool(frame.attrs.get("synthetic", False))
+
+
+def uploaded_source():
+    uploaded = st.file_uploader("Predikciók CSV-fájlja", type=["csv"])
+    if uploaded is None:
+        st.info("Elvárt oszlopok: age, predicted_age. Ajánlott: ecg_id, patient_id, split (validation/test), sex és diagnosztikai címkék.")
+        return None, None, False
+    frame = load_predictions(io.BytesIO(uploaded.getvalue()))
+    return frame, uploaded.name, bool(frame.attrs.get("synthetic", False))
+
+
+def hosted_result_source():
+    """Cloud / browser: the bundled example model's predictions or an uploaded CSV – no local paths."""
+    bundled = bundled_predictions_path()
+    options = (["Példamodell eredményei"] if bundled else []) + ["CSV feltöltése"]
+    source = st.radio("Eredmények betöltése", options, horizontal=True)
+    if source == "CSV feltöltése":
+        return uploaded_source()
+    frame = load_predictions(bundled)
+    metrics_path = bundled.parent / "metrics.json"
+    if metrics_path.is_file():
+        try:
+            provenance = json.loads(metrics_path.read_text(encoding="utf-8"))
+            if isinstance(provenance, dict):
+                frame.attrs["run_provenance"] = provenance
+        except (ValueError, OSError):
+            pass
+    return frame, "példamodell (predictions.csv)", bool(frame.attrs.get("synthetic", False))
 
 
 def enrich_predictions(df, data_dir):
@@ -579,7 +709,7 @@ def main():
     else:
         experiments_page(demo, data_dir)
     st.divider()
-    st.caption("ECG Age Lab / TDK · Helyi kutatói munkafelület · A bemutatóadatok nem kutatási eredmények.")
+    st.caption(FOOTER)
 
 
 if __name__ == "__main__":

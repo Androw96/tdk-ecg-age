@@ -7,7 +7,8 @@ textColor = "#162d3d"
 font = "sans serif"
 
 [server]
-address = "127.0.0.1"
+# A helyi indító (launch_dashboard.command) --server.address=127.0.0.1 kapcsolóval csak a
+# saját gépen figyel; az address itt szándékosan nincs rögzítve, hogy a felhős telepítés is működjön.
 headless = true
 maxUploadSize = 100
 

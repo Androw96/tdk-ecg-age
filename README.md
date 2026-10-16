@@ -13,6 +13,7 @@ Ez a projekt egy reprodukálható kiindulási pipeline a TDK saját kísérleti 
 |---|---|
 | [README.md](README.md) | Telepítés, kutatási pipeline, parancsok |
 | [DASHBOARD.md](DASHBOARD.md) | Az ECG Age Lab helyi felület használata |
+| [docs/UI_DOKUMENTACIO.md](docs/UI_DOKUMENTACIO.md) | A felület három változata: böngészős (GitHub Pages), online (Streamlit Cloud), helyi – telepítés és működés |
 | [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | Kísérleti protokoll (E1–E7), kimenetek → dolgozat fejezetei |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modulok, adatfolyam, checkpoint-formátum, tesztek |
 | [CHANGELOG.md](CHANGELOG.md) | Verziók és változások |
@@ -30,6 +31,10 @@ ensemble_runs.py           több seed összevonása
 predict_ecg_age.py         checkpoint újraértékelése
 run_experiments.sh         E1–E7 kísérletek
 dashboard_app.py, dashboard/      ECG Age Lab (Streamlit)
+deploy/streamlit_cloud/     Streamlit Community Cloud belépési pont
+scripts/build_demo_bundle.py   példacsomag a hosztolt felületekhez
+web/                       GitHub Pages: oldalépítő, eredménygyűjtő, példák
+deploy/github_pages/pages.yml  Pages-workflow (→ .github/workflows/)
 tests/                     pytest tesztek (szintetikus adat)
 docs/                      fejlesztői és kísérleti dokumentáció
 ```
@@ -44,7 +49,7 @@ macOS-en indítsd a `launch_dashboard.command` fájlt dupla kattintással,
 vagy futtasd a projekt mappájából:
 
 ```bash
-.venv/bin/python -m streamlit run dashboard_app.py
+.venv/bin/python -m streamlit run dashboard_app.py --server.address=127.0.0.1
 ```
 
 A cím: **http://127.0.0.1:8501**. A bemutató módhoz nem kell adatbázis;

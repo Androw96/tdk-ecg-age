@@ -1,8 +1,8 @@
 # Architektúra – fejlesztői dokumentáció
 
 Ez a dokumentum a kód felépítését, az adatfolyamot és a fájlformátumokat írja le.
-Felhasználói leírás: [README.md](../README.md) (kutatási pipeline) és
-[DASHBOARD.md](../DASHBOARD.md) (ECG Age Lab felület). Kísérleti protokoll:
+Felhasználói leírás: [README.md](../README.md) (kutatási pipeline),
+[DASHBOARD.md](../DASHBOARD.md) (ECG Age Lab felület) és [UI_DOKUMENTACIO.md](UI_DOKUMENTACIO.md) (a felület változatai). Kísérleti protokoll:
 [EXPERIMENTS.md](EXPERIMENTS.md).
 
 ## Modultérkép
@@ -22,6 +22,9 @@ Felhasználói leírás: [README.md](../README.md) (kutatási pipeline) és
 | `dashboard/jobs.py` | Háttérfolyamatok (tanítás, teszt, elemzés) indítása / leállítása, shell nélkül | – |
 | `dashboard/analytics.py` | Feltöltött predikciós CSV-k elemzése, export (PyTorch nélkül) | pandas |
 | `run_experiments.sh` | Az E1–E7 kísérletek parancsai | – |
+| `deploy/streamlit_cloud/streamlit_app.py` | Community Cloud belépési pont (`cloud` profil) | dashboard_app |
+| `scripts/build_demo_bundle.py` | Példacsomag a hosztolt felületekhez (`demo_data/`, `web/examples/`) | model_service |
+| `web/build_site.py`, `web/collect_results.py` | GitHub Pages oldal és eredménygyűjtés | markdown |
 
 ## Adatfolyam
 

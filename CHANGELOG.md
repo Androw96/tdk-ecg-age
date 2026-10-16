@@ -1,5 +1,14 @@
 # Változásnapló
 
+## v2.1 – 2026. október – hosztolt felületek
+- `dashboard_app.py` profilok: `local` (változatlan), `cloud` (Streamlit Community Cloud, élő modell a
+  példacsomagon), `browser` (GitHub Pages / stlite, előre kiszámított példák).
+- `deploy/streamlit_cloud/` belépési pont és CPU-s függőségek; `scripts/build_demo_bundle.py` példacsomag.
+- `web/build_site.py`, `web/collect_results.py`, `deploy/github_pages/pages.yml`: kezdőoldal, eredmények,
+  dokumentáció és böngészős alkalmazás GitHub Pagesen.
+- A szerver címe (`127.0.0.1`) a `.streamlit/config.toml`-ból az indítóba került.
+- Új dokumentáció: `docs/UI_DOKUMENTACIO.md`; új tesztek: `tests/test_dashboard_profiles.py`.
+
 ## v2 – 2026. október
 
 ### Modell és tanítás

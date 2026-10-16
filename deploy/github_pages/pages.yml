@@ -1,0 +1,47 @@
+# GitHub Pages: start page, documentation and the browser (stlite) version of the UI.
+# Install once (GitHub only runs workflows from .github/workflows/):
+#   mkdir -p .github/workflows && cp deploy/github_pages/pages.yml .github/workflows/pages.yml
+# One-time setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# Optional: Settings → Secrets and variables → Actions → Variables → CLOUD_APP_URL
+# (the Streamlit Community Cloud address; the start page then links to it).
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install site builder dependency
+        run: python -m pip install "markdown>=3.5"
+      - name: Build site
+        run: python web/build_site.py --out _site --cloud-url "${{ vars.CLOUD_APP_URL }}"
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

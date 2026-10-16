@@ -1,0 +1,11 @@
+# Streamlit Community Cloud – csak a felület futtatásához szükséges csomagok.
+# A PyTorch CPU-s változata jóval kisebb, mint az alapértelmezett (CUDA-s) csomag.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.4,<3
+streamlit>=1.50,<2
+plotly>=5.24,<7
+numpy>=1.26
+pandas>=2.1
+scipy>=1.11
+wfdb>=4.1
+captum>=0.7
